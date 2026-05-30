@@ -34,7 +34,7 @@ client = gspread.authorize(credentials)
 # =========================
 SPREADSHEET_ID = os.environ.get(
     "SPREADSHEET_ID",
-    "1GfUI70Dl13_1GpAZw-jjZY0T4NQuBJA8gZnSOpojvVI"
+    "1m6ZQsxYavA37CW8inxYiZ-4ZJT1uV9VFm_UybQ6lRTY"
 )
 
 # 👉 預先開啟
