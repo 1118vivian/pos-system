@@ -187,10 +187,16 @@ def submit_order():
 
     data = request.json
 
-    with order_lock:
-        # 🔥 使用短 order id，並用鎖避免同一台伺服器瞬間重複編號
-        order_id = generate_order_id()
-        save_order(order_id, data)
+    try:
+        with order_lock:
+            # 🔥 使用短 order id，並用鎖避免同一台伺服器瞬間重複編號
+            order_id = generate_order_id()
+            save_order(order_id, data)
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": f"訂單送出失敗：{e}"
+        }), 500
 
     return jsonify({
         "status": "success",

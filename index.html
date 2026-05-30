@@ -486,14 +486,22 @@ function submitOrder(){
             items:cart
         })
     })
-    .then(r=>r.json())
-    .then(()=>{
+    .then(async r=>{
+        const result = await r.json().catch(()=>({message:"伺服器回傳格式錯誤"}));
+
+        if(!r.ok || result.status !== "success"){
+            throw new Error(result.message || "送出失敗");
+        }
+
+        return result;
+    })
+    .then(result=>{
         alert("訂單已送出");
         cart = [];
         renderCart();
     })
-    .catch(()=>{
-        alert("送出失敗");
+    .catch(err=>{
+        alert(err.message || "送出失敗");
     });
 }
 
