@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>POS System</title>
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -142,34 +143,94 @@ h4 {
 /* ================= 手機模式 ================= */
 @media (max-width: 768px) {
 
-.pos {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
-    overflow-y: auto;
+html, body {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
 }
 
-.group-grid { grid-template-columns: repeat(4,1fr); }
-.product-grid { grid-template-columns: repeat(2,1fr); }
-.size-grid { grid-template-columns: repeat(3,1fr); }
+.pos {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    min-height: 100vh;
+    height: auto;
+    overflow-y: visible;
+}
+
+.panel {
+    padding: 12px;
+    overflow: visible;
+}
+
+h4 {
+    font-size: 20px;
+    margin-bottom: 10px;
+}
+
+.group-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.product-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.size-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
 
 .group-btn,
 .product-btn,
 .size-btn {
-    padding: 12px;
-    font-size: 16px;
+    min-height: 52px;
+    padding: 12px 8px;
+    font-size: 18px;
+    line-height: 1.2;
+}
+
+.qty-display {
+    font-size: 32px;
+    padding: 10px;
+    margin-bottom: 8px;
+}
+
+.keypad {
+    gap: 8px;
 }
 
 .keypad button {
-    height: 60px;
-    font-size: 20px;
+    height: 64px;
+    font-size: 24px;
 }
 
 .cart {
-    height: 200px;
+    height: 260px;
+    font-size: 18px;
+}
+
+.cart-item {
+    align-items: center;
+    gap: 8px;
+    padding: 10px 4px;
+    font-size: 18px;
+}
+
+.cart-item button {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 20px;
 }
 
 .total {
-    font-size: 24px;
+    font-size: 28px;
+}
+
+.btn {
+    min-height: 48px;
+    font-size: 18px;
 }
 
 }
