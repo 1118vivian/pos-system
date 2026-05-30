@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>POS System</title>
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+<style>
+html, body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    font-family: Arial;
+}
+
+/* ===== 主版面 ===== */
+.pos {
+    display: grid;
+    grid-template-columns: 30% 25% 45%;
+    height: 100vh;
+}
+
+.panel {
+    padding: 8px;
+    overflow: hidden;
+}
+
+h4 {
+    font-size: 16px;
+    margin-bottom: 6px;
+}
+
+/* ===== 組別 ===== */
+.group-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+}
+
+.group-btn {
+    padding: 6px;
+    font-size: 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: white;
+}
+
+.group-btn.active {
+    background: #0d6efd;
+    color: white;
+}
+
+/* ===== 商品 ===== */
+.product-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+}
+
+.product-btn {
+    padding: 8px;
+    font-size: 13px;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    background: white;
+}
+
+.product-btn.active {
+    background: #e7f1ff;
+    border: 2px solid #0d6efd;
+}
+
+/* ===== 尺寸 ===== */
+.size-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+}
+
+.size-btn {
+    padding: 6px;
+    font-size: 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+.size-btn.active {
+    background: #0d6efd;
+    color: white;
+}
+
+/* ===== 數量 ===== */
+.qty-display {
+    font-size: 22px;
+    text-align: center;
+    padding: 6px;
+    background: #f1f1f1;
+    border-radius: 6px;
+}
+
+.keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+}
+
+.keypad button {
+    height: 45px;
+    font-size: 16px;
+}
+
+/* ===== 購物車 ===== */
+.cart {
+    height: 70%;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 6px;
+}
+
+.cart-item {
+    padding: 5px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+}
+
+.total {
+    font-size: 20px;
+    font-weight: bold;
+    margin-top: 6px;
+}
+
+.top-link {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 6px;
+}
+
+/* ================= 手機模式 ================= */
+@media (max-width: 768px) {
+
+.pos {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    overflow-y: auto;
+}
+
+.group-grid { grid-template-columns: repeat(4,1fr); }
+.product-grid { grid-template-columns: repeat(2,1fr); }
+.size-grid { grid-template-columns: repeat(3,1fr); }
+
+.group-btn,
+.product-btn,
+.size-btn {
+    padding: 12px;
+    font-size: 16px;
+}
+
+.keypad button {
+    height: 60px;
+    font-size: 20px;
+}
+
+.cart {
+    height: 200px;
+}
+
+.total {
+    font-size: 24px;
+}
+
+}
+</style>
+</head>
+
+<body>
+
+<div class="pos">
+
+<!-- 左 -->
+<div class="panel">
+<h4>組別</h4>
+<div class="group-grid" id="groupList"></div>
+
+<hr>
+
+<h4>商品</h4>
+<div class="product-grid" id="productList"></div>
+</div>
+
+<!-- 中 -->
+<div class="panel">
+<h4>尺寸</h4>
+<div class="size-grid" id="sizeList"></div>
+
+<hr>
+
+<h4>數量</h4>
+<div class="qty-display" id="qtyDisplay">0</div>
+
+<div class="keypad">
+    <button onclick="inputQty(1)">1</button>
+    <button onclick="inputQty(2)">2</button>
+    <button onclick="inputQty(3)">3</button>
+    <button onclick="inputQty(4)">4</button>
+    <button onclick="inputQty(5)">5</button>
+    <button onclick="inputQty(6)">6</button>
+    <button onclick="inputQty(7)">7</button>
+    <button onclick="inputQty(8)">8</button>
+    <button onclick="inputQty(9)">9</button>
+    <button onclick="clearQty()">C</button>
+    <button onclick="inputQty(0)">0</button>
+    <button onclick="addToCart()" style="background:#198754;color:white;">OK</button>
+</div>
+</div>
+
+<!-- 右 -->
+<div class="panel">
+<div class="top-link">
+    <a class="btn btn-outline-secondary btn-sm" href="/logout">登出</a>
+</div>
+<h4>購物車</h4>
+<div class="cart" id="cart"></div>
+
+<div class="total" id="total">Total: 0</div>
+
+<button class="btn btn-success w-100 mt-2" onclick="submitOrder()">
+確認送出訂單
+</button>
+
+<button onclick="window.open('/orders_page')" class="btn btn-primary w-100 mt-2">
+    訂單總覽
+</button>
+</div>
+
+</div>
+
+<script>
+
+let products = [];
+let selectedGroup = "1";
+let selectedProduct = null;
+let selectedSize = null;
+let qty = "0";
+let cart = [];
+
+/* ===== load ===== */
+fetch("/products_grouped")
+.then(r=>r.json())
+.then(data=>{
+    products = data;
+    renderGroups();
+    renderProducts();
+});
+
+/* ===== 組別 ===== */
+function renderGroups(){
+    let html = "";
+    for(let i=1;i<=15;i++){
+        html += `<button class="group-btn ${i==1?'active':''}" onclick="selectGroup('${i}', this)">${i}組</button>`;
+    }
+    html += `<button class="group-btn" onclick="selectGroup('個人', this)">個人</button>`;
+    document.getElementById("groupList").innerHTML = html;
+}
+
+function selectGroup(g, el){
+
+    // 👉 統一格式
+    if(g === "個人"){
+    selectedGroup = "P";
+} else {
+    selectedGroup = "G" + String(g).padStart(2, "0");
+}
+
+    document.querySelectorAll(".group-btn").forEach(b=>b.classList.remove("active"));
+    el.classList.add("active");
+}
+
+/* ===== 商品 ===== */
+function renderProducts(){
+    let html = "";
+    products.forEach(p=>{
+        html += `<div class="product-btn" onclick='selectProduct("${p.id}", this)'>${p.name}</div>`;
+    });
+    document.getElementById("productList").innerHTML = html;
+}
+
+function selectProduct(id, el){
+    selectedProduct = products.find(p=>p.id===id);
+    selectedSize = null;
+
+    document.querySelectorAll(".product-btn").forEach(b=>b.classList.remove("active"));
+    el.classList.add("active");
+
+    let html = "";
+
+    if(!selectedProduct.sizes.length){
+        html = "<div>無尺寸</div>";
+    } else {
+        selectedProduct.sizes.forEach(s=>{
+            html += `<button class="size-btn" onclick='selectSize("${s.size}", "${s.sku}", ${s.price}, this)'>${s.size}</button>`;
+        });
+    }
+
+    document.getElementById("sizeList").innerHTML = html;
+}
+
+/* ===== 尺寸 ===== */
+function selectSize(size, sku, price, el){
+    selectedSize = {size, sku, price};
+
+    document.querySelectorAll(".size-btn").forEach(b=>b.classList.remove("active"));
+    el.classList.add("active");
+}
+
+/* ===== 數量 ===== */
+function inputQty(n){
+    if(qty === "0") qty = "";
+    qty += n;
+    qty = qty.replace(/^0+/, "") || "0";
+    document.getElementById("qtyDisplay").innerText = qty;
+}
+
+function clearQty(){
+    qty = "0";
+    document.getElementById("qtyDisplay").innerText = qty;
+}
+
+/* ===== 加入購物車 ===== */
+function addToCart(){
+    if(!selectedProduct || !selectedSize) return;
+
+    let q = parseInt(qty);
+    if(q <= 0) return;
+
+    let key = selectedSize.sku;
+
+    let exist = cart.find(c=>c.sku === key);
+
+    if(exist){
+        exist.qty += q;
+    } else {
+        cart.push({
+            group: selectedGroup,
+            sku: key,
+            name: selectedProduct.name,
+            size: selectedSize.size,
+            price: selectedSize.price,
+            qty: q
+        });
+    }
+
+    renderCart();
+    clearQty();
+}
+
+/* ===== 購物車操作 ===== */
+function plusItem(i){
+    cart[i].qty += 1;
+    renderCart();
+}
+
+function minusItem(i){
+    if(cart[i].qty > 1){
+        cart[i].qty -= 1;
+    } else {
+        cart.splice(i, 1);
+    }
+    renderCart();
+}
+
+function removeItem(i){
+    cart.splice(i, 1);
+    renderCart();
+}
+
+/* ===== 購物車 ===== */
+function renderCart(){
+    let html = "";
+    let total = 0;
+
+    cart.forEach((c,i)=>{
+        let sum = c.price * c.qty;
+        total += sum;
+
+        html += `
+        <div class="cart-item">
+            <div>
+                [${c.group}] ${c.name} ${c.size}<br>
+                ${c.qty} x ${c.price} = ${sum}
+            </div>
+
+            <div style="display:flex;gap:5px;">
+                <button onclick="minusItem(${i})">-</button>
+                <button onclick="plusItem(${i})">+</button>
+                <button onclick="removeItem(${i})" style="color:red;">X</button>
+            </div>
+        </div>`;
+    });
+
+    document.getElementById("cart").innerHTML = html;
+    document.getElementById("total").innerText = "Total: " + total;
+}
+
+/* ===== 送出訂單 ===== */
+function submitOrder(){
+
+    if(cart.length === 0){
+        alert("購物車是空的");
+        return;
+    }
+
+    if(!confirm("確定送出訂單？")){
+        return;
+    }
+
+    fetch("/submit_order", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+            group:selectedGroup,
+            items:cart
+        })
+    })
+    .then(r=>r.json())
+    .then(()=>{
+        alert("訂單已送出");
+        cart = [];
+        renderCart();
+    })
+    .catch(()=>{
+        alert("送出失敗");
+    });
+}
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+credentials.json
+public_password.txt
+tools/
+*.log

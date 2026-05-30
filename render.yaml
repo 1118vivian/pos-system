@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: pos-system
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python serve.py
+    envVars:
+      - key: POS_APP_PASSWORD
+        sync: false
+      - key: POS_SECRET_KEY
+        sync: false
+      - key: GOOGLE_CREDENTIALS_JSON
+        sync: false
+      - key: SPREADSHEET_ID
+        sync: false
