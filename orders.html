@@ -152,6 +152,7 @@ function escapeHtml(value){
 
 function formatGroup(g){
     if(g === "P") return "個人";
+    if(g === "EXT") return "延伸";
 
     if(typeof g === "number"){
         return g + "組";
@@ -176,6 +177,7 @@ function groupOptions(selected){
     }
 
     html += `<option value="P" ${selected === "P" ? "selected" : ""}>個人</option>`;
+    html += `<option value="EXT" ${selected === "EXT" ? "selected" : ""}>延伸</option>`;
     return html;
 }
 

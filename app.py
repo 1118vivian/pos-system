@@ -1,11 +1,21 @@
 import json
 import os
+from io import BytesIO
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from threading import Lock
 
-from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
+from flask import Flask, jsonify, redirect, request, send_file, send_from_directory, session, url_for
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from config import APP_PASSWORD, SECRET_KEY
 from sheets import get_orders, get_product_grouped, save_order, update_order, validate_sheet_schema
@@ -136,7 +146,7 @@ def submit_order():
     data = request.get_json(silent=True) or {}
     customer_name = str(data.get("customer_name", "")).strip()
     group = str(data.get("group", "")).strip()
-    valid_groups = {"P", *(f"G{number:02d}" for number in range(1, 16))}
+    valid_groups = {"P", "EXT", *(f"G{number:02d}" for number in range(1, 16))}
     if group not in valid_groups:
         return jsonify({"status": "error", "message": "請先選擇組別"}), 400
     if not customer_name:
@@ -177,6 +187,83 @@ def submit_order():
         "status": "success", "message": "訂購完成，謝謝訂購", **saved,
         "payment": {"bank_name": settings["bank_name"], "bank_code": settings.get("bank_code", ""), "bank_account": settings["bank_account"], "account_name": settings.get("account_name", ""), "amount": saved["total"]},
     })
+
+
+def group_label(group):
+    if group == "P":
+        return "個人"
+    if group == "EXT":
+        return "延伸"
+    if str(group).startswith("G") and str(group)[1:].isdigit():
+        return f"{int(str(group)[1:])}組"
+    return str(group or "")
+
+
+def receipt_font():
+    font_name = "OrderReceiptFont"
+    if font_name in pdfmetrics.getRegisteredFontNames():
+        return font_name
+    candidates = [
+        os.environ.get("PDF_FONT_PATH", ""),
+        r"C:\Windows\Fonts\msjh.ttc",
+        r"C:\Windows\Fonts\mingliu.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansTC-Regular.ttf",
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            pdfmetrics.registerFont(TTFont(font_name, path, subfontIndex=0))
+            return font_name
+    pdfmetrics.registerFont(UnicodeCIDFont("MSung-Light"))
+    return "MSung-Light"
+
+
+@app.route("/download_order_pdf", methods=["POST"])
+def download_order_pdf():
+    data = request.get_json(silent=True) or {}
+    items = data.get("items", [])
+    if not isinstance(items, list) or not items or len(items) > 100:
+        return jsonify({"status": "error", "message": "訂單明細格式錯誤"}), 400
+
+    order_id = str(data.get("order_id", ""))[:50]
+    customer_name = str(data.get("customer_name", ""))[:50]
+    order_time = str(data.get("order_time", ""))[:50]
+    payment = data.get("payment", {}) if isinstance(data.get("payment"), dict) else {}
+    total = sum(safe_pdf_number(item.get("price")) * safe_pdf_number(item.get("qty")) for item in items)
+
+    font_name = receipt_font()
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("ReceiptTitle", parent=styles["Title"], fontName=font_name, fontSize=20, leading=26, alignment=TA_CENTER)
+    body_style = ParagraphStyle("ReceiptBody", parent=styles["BodyText"], fontName=font_name, fontSize=11, leading=17)
+    right_style = ParagraphStyle("ReceiptRight", parent=body_style, alignment=TA_RIGHT)
+    buffer = BytesIO()
+    document = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm, title=f"訂單 {order_id}")
+    story = [Paragraph("訂購完成 - 訂單明細", title_style), Spacer(1, 6 * mm)]
+    meta = [["訂單編號", order_id], ["組別", group_label(data.get("group"))], ["訂購人", customer_name], ["訂單時間", order_time]]
+    meta_table = Table(meta, colWidths=[28 * mm, 128 * mm])
+    meta_table.setStyle(TableStyle([("FONTNAME", (0, 0), (-1, -1), font_name), ("FONTSIZE", (0, 0), (-1, -1), 11), ("BOTTOMPADDING", (0, 0), (-1, -1), 6), ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#555555"))]))
+    story.extend([meta_table, Spacer(1, 5 * mm)])
+    rows = [["商品", "尺寸／規格", "單價", "數量", "小計"]]
+    for item in items:
+        price, qty = safe_pdf_number(item.get("price")), safe_pdf_number(item.get("qty"))
+        rows.append([str(item.get("name", ""))[:100], str(item.get("size", ""))[:30], f"{price:,}", str(qty), f"{price * qty:,}"])
+    rows.append(["", "", "", "總計", f"NT$ {total:,}"])
+    detail_table = Table(rows, colWidths=[61 * mm, 30 * mm, 22 * mm, 18 * mm, 27 * mm], repeatRows=1)
+    detail_table.setStyle(TableStyle([("FONTNAME", (0, 0), (-1, -1), font_name), ("FONTSIZE", (0, 0), (-1, -1), 10), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E9ECEF")), ("GRID", (0, 0), (-1, -2), 0.5, colors.HexColor("#777777")), ("ALIGN", (2, 1), (-1, -1), "RIGHT"), ("FONTNAME", (3, -1), (-1, -1), font_name), ("FONTSIZE", (3, -1), (-1, -1), 12), ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7)]))
+    story.extend([detail_table, Spacer(1, 8 * mm), Paragraph("匯款資訊", ParagraphStyle("PaymentTitle", parent=body_style, fontSize=14, leading=20)), Spacer(1, 2 * mm)])
+    bank_code = str(payment.get("bank_code", ""))[:20]
+    bank_line = f"{str(payment.get('bank_name', ''))[:50]}" + (f"（銀行代號：{bank_code}）" if bank_code else "")
+    story.extend([Paragraph(bank_line, body_style), Paragraph(f"匯款帳號：{str(payment.get('bank_account', ''))[:60]}", body_style), Paragraph(f"戶名：{str(payment.get('account_name', ''))[:50] or '-'}", body_style), Spacer(1, 3 * mm), Paragraph(f"匯款金額：NT$ {total:,}", right_style)])
+    document.build(story)
+    buffer.seek(0)
+    return send_file(buffer, mimetype="application/pdf", as_attachment=True, download_name=f"order-{order_id or 'receipt'}.pdf")
+
+
+def safe_pdf_number(value):
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
 
 
 @app.route("/orders")
