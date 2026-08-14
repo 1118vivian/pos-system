@@ -18,7 +18,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from config import APP_PASSWORD, SECRET_KEY
-from sheets import get_orders, get_product_grouped, save_order, update_order, validate_sheet_schema
+from sheets import get_active_term, get_order_terms, get_orders, get_product_grouped, get_system_settings, initialize_order_terms, save_order, set_active_term, set_system_settings, update_order, validate_sheet_schema
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -33,6 +33,8 @@ DEFAULT_SETTINGS = {
     "bank_code": os.environ.get("BANK_CODE", ""),
     "bank_account": os.environ.get("BANK_ACCOUNT", "請設定匯款帳號"),
     "account_name": os.environ.get("BANK_ACCOUNT_NAME", ""),
+    "academic_year": datetime.now().year,
+    "semester": 1,
 }
 
 
@@ -63,6 +65,12 @@ def load_settings():
             settings.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             pass
+    try:
+        saved = get_system_settings()
+        saved.pop("active_term", None)
+        settings.update(saved)
+    except Exception:
+        app.logger.exception("Unable to read system settings from Google Sheet")
     return settings
 
 
@@ -73,6 +81,29 @@ def parse_local_datetime(value):
         return datetime.fromisoformat(value)
     except ValueError:
         return None
+
+
+def current_term(settings=None):
+    supplied_settings = settings is not None
+    settings = settings or load_settings()
+    try:
+        year = int(settings.get("academic_year", datetime.now().year))
+        semester = int(settings.get("semester", 1))
+    except (TypeError, ValueError):
+        year, semester = datetime.now().year, 1
+    semester = 2 if semester == 2 else 1
+    fallback = f"{year}-{semester}"
+    return fallback if supplied_settings else get_active_term(fallback)
+
+
+def term_label(term):
+    if term == "legacy":
+        return "歷史資料（未標示學期）"
+    try:
+        year, semester = str(term).split("-", 1)
+        return f"{int(year)} 年第 {int(semester)} 學期"
+    except (TypeError, ValueError):
+        return str(term or "")
 
 
 def ordering_status():
@@ -88,7 +119,8 @@ def ordering_status():
         is_open, reason = False, f"訂購將於 {start:%Y-%m-%d %H:%M} 開放"
     elif end and now > end:
         is_open, reason = False, "本次訂購時間已結束"
-    return {"is_open": is_open, "message": reason, "start_at": settings.get("start_at", ""), "end_at": settings.get("end_at", "")}
+    term = current_term()
+    return {"is_open": is_open, "message": reason, "start_at": settings.get("start_at", ""), "end_at": settings.get("end_at", ""), "term": term, "term_label": term_label(term)}
 
 
 @app.route("/")
@@ -176,6 +208,7 @@ def submit_order():
     try:
         with order_lock:
             order_id = generate_order_id()
+            data["term"] = current_term()
             saved = save_order(order_id, data)
     except ValueError as exc:
         return jsonify({"status": "error", "message": str(exc)}), 400
@@ -239,7 +272,7 @@ def download_order_pdf():
     buffer = BytesIO()
     document = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm, topMargin=16 * mm, bottomMargin=16 * mm, title=f"訂單 {order_id}")
     story = [Paragraph("訂購完成 - 訂單明細", title_style), Spacer(1, 6 * mm)]
-    meta = [["訂單編號", order_id], ["組別", group_label(data.get("group"))], ["訂購人", customer_name], ["訂單時間", order_time]]
+    meta = [["訂單編號", order_id], ["學期", term_label(data.get("term"))], ["組別", group_label(data.get("group"))], ["訂購人", customer_name], ["訂單時間", order_time]]
     meta_table = Table(meta, colWidths=[28 * mm, 128 * mm])
     meta_table.setStyle(TableStyle([("FONTNAME", (0, 0), (-1, -1), font_name), ("FONTSIZE", (0, 0), (-1, -1), 11), ("BOTTOMPADDING", (0, 0), (-1, -1), 6), ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#555555"))]))
     story.extend([meta_table, Spacer(1, 5 * mm)])
@@ -269,7 +302,19 @@ def safe_pdf_number(value):
 @app.route("/orders")
 @login_required
 def orders():
-    return jsonify(get_orders())
+    requested_term = request.args.get("term", "").strip() or current_term()
+    return jsonify(get_orders(term=requested_term))
+
+
+@app.route("/api/terms")
+@login_required
+def terms_api():
+    active = current_term()
+    initialize_order_terms(active)
+    terms = get_order_terms()
+    if active not in terms:
+        terms.insert(0, active)
+    return jsonify({"current_term": active, "current_label": term_label(active), "terms": [{"value": term, "label": term_label(term)} for term in terms]})
 
 
 @app.route("/orders/<order_id>", methods=["PUT"])
@@ -292,14 +337,42 @@ def orders_page():
 @login_required
 def settings_api():
     if request.method == "GET":
-        return jsonify(load_settings())
+        settings = load_settings()
+        term = current_term()
+        year, semester = term.split("-", 1)
+        settings["academic_year"], settings["semester"] = int(year), int(semester)
+        return jsonify(settings)
     incoming = request.get_json(silent=True) or {}
-    allowed = {"ordering_enabled", "start_at", "end_at", "bank_name", "bank_code", "bank_account", "account_name"}
+    allowed = {"ordering_enabled", "start_at", "end_at", "bank_name", "bank_code", "bank_account", "account_name", "academic_year", "semester"}
     settings = load_settings()
     settings.update({key: incoming[key] for key in allowed if key in incoming})
     with settings_lock:
         SETTINGS_FILE.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
+    set_system_settings(settings)
+    set_active_term(current_term(settings))
     return jsonify({"status": "success", "settings": settings, "ordering": ordering_status()})
+
+
+@app.route("/api/settings/next_term", methods=["POST"])
+@login_required
+def activate_next_term():
+    settings = load_settings()
+    try:
+        active = current_term()
+        year, semester = (int(value) for value in active.split("-", 1))
+    except (TypeError, ValueError):
+        year, semester = datetime.now().year, 1
+    if semester == 1:
+        semester = 2
+    else:
+        year, semester = year + 1, 1
+    settings["academic_year"], settings["semester"] = year, semester
+    set_active_term(f"{year}-{semester}")
+    with settings_lock:
+        SETTINGS_FILE.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
+    set_system_settings(settings)
+    term = current_term(settings)
+    return jsonify({"status": "success", "settings": settings, "term": term, "term_label": term_label(term)})
 
 
 @app.route("/sheet_check")

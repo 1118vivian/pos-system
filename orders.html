@@ -103,8 +103,11 @@ body {
 <body>
 
 <div class="order mb-3">
-    <div class="order-title"><span>訂購開放與匯款設定</span><span id="settingStatus" class="text-muted fw-normal"></span></div>
+    <div class="order-title"><span>訂購開放、學期與匯款設定</span><span id="settingStatus" class="text-muted fw-normal"></span></div>
     <div class="row g-2">
+        <div class="col-md-2"><label class="form-label">學年</label><input class="form-control" id="academicYear" type="number" min="2020" max="2100"></div>
+        <div class="col-md-2"><label class="form-label">學期</label><select class="form-select" id="semester"><option value="1">第 1 學期</option><option value="2">第 2 學期</option></select></div>
+        <div class="col-md-4 d-flex align-items-end"><button class="btn btn-warning" onclick="activateNextTerm()">啟用下一學期</button></div>
         <div class="col-md-2 d-flex align-items-end"><div class="form-check form-switch mb-2"><input class="form-check-input" id="orderingEnabled" type="checkbox"><label class="form-check-label" for="orderingEnabled">開放訂購</label></div></div>
         <div class="col-md-3"><label class="form-label">開放時間（可留白）</label><input class="form-control" id="startAt" type="datetime-local"></div>
         <div class="col-md-3"><label class="form-label">結束時間（可留白）</label><input class="form-control" id="endAt" type="datetime-local"></div>
@@ -119,6 +122,7 @@ body {
 <div class="toolbar">
     <h3 class="m-0">📦 訂單總覽</h3>
     <div class="d-flex gap-2">
+        <select class="form-select form-select-sm" id="termSelect" onchange="changeTerm()" aria-label="選擇學期"></select>
         <button class="btn btn-outline-secondary btn-sm" onclick="loadData()">重新整理</button>
         <a class="btn btn-outline-secondary btn-sm" href="/sheet_check" target="_blank">欄位檢查</a>
         <a class="btn btn-outline-secondary btn-sm" href="/logout">登出</a>
@@ -140,6 +144,7 @@ body {
 let orders = [];
 let products = [];
 let editingId = null;
+let selectedTerm = "";
 
 function escapeHtml(value){
     return String(value ?? "")
@@ -212,7 +217,7 @@ async function loadData(){
 
     try {
         const [ordersResponse, productsResponse] = await Promise.all([
-            fetch("/orders"),
+            fetch(`/orders?term=${encodeURIComponent(selectedTerm)}`),
             fetch("/products_grouped")
         ]);
 
@@ -431,6 +436,8 @@ async function loadSettings(){
     if(!response.ok) return;
     const settings = await response.json();
     document.getElementById("orderingEnabled").checked = !!settings.ordering_enabled;
+    document.getElementById("academicYear").value = settings.academic_year || new Date().getFullYear();
+    document.getElementById("semester").value = String(settings.semester || 1);
     document.getElementById("startAt").value = settings.start_at || "";
     document.getElementById("endAt").value = settings.end_at || "";
     document.getElementById("bankName").value = settings.bank_name || "";
@@ -442,6 +449,8 @@ async function loadSettings(){
 async function saveSettings(){
     const payload = {
         ordering_enabled: document.getElementById("orderingEnabled").checked,
+        academic_year: Number(document.getElementById("academicYear").value),
+        semester: Number(document.getElementById("semester").value),
         start_at: document.getElementById("startAt").value,
         end_at: document.getElementById("endAt").value,
         bank_name: document.getElementById("bankName").value.trim(),
@@ -453,7 +462,37 @@ async function saveSettings(){
     const result = await response.json();
     if(!response.ok) return alert(result.message || "設定儲存失敗");
     document.getElementById("settingStatus").textContent = result.ordering.message;
+    selectedTerm = result.ordering.term;
+    await loadTerms();
+    await loadData();
     alert("設定已儲存");
+}
+
+async function loadTerms(){
+    const response = await fetch("/api/terms");
+    if(!response.ok) return;
+    const data = await response.json();
+    selectedTerm = selectedTerm || data.current_term;
+    document.getElementById("termSelect").innerHTML = data.terms.map(term => `<option value="${escapeHtml(term.value)}" ${term.value === selectedTerm ? "selected" : ""}>${escapeHtml(term.label)}${term.value === data.current_term ? "（目前）" : ""}</option>`).join("");
+    document.getElementById("settingStatus").textContent = `目前：${data.current_label}`;
+}
+
+async function changeTerm(){
+    selectedTerm = document.getElementById("termSelect").value;
+    editingId = null;
+    await loadData();
+}
+
+async function activateNextTerm(){
+    if(!confirm("確定啟用下一學期？訂單總覽將切換到新的空白學期，舊訂單仍會保留在歷史學期。")) return;
+    const response = await fetch("/api/settings/next_term", {method:"POST"});
+    const result = await response.json();
+    if(!response.ok) return alert(result.message || "啟用失敗");
+    selectedTerm = result.term;
+    await loadSettings();
+    await loadTerms();
+    await loadData();
+    alert(`已啟用${result.term_label}`);
 }
 
 function orderPrintHtml(order){
@@ -511,12 +550,13 @@ function printDateRange(){
     openPrintWindow(selected, `${start} 至 ${end} 訂單`);
 }
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
     const today = new Date().toLocaleDateString("en-CA");
     document.getElementById("printStart").value = today;
     document.getElementById("printEnd").value = today;
-    loadSettings();
-    loadData();
+    await loadSettings();
+    await loadTerms();
+    await loadData();
 });
 </script>
 
